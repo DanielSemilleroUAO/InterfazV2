@@ -397,6 +397,7 @@ class Interfaz_grafica_usuario(tkinter.Tk):
                             self.actualizar_imagen(cv2.resize(roi, (235,165), interpolation = cv2.INTER_AREA),2)
                         
                     if(len(self.indices) >= 1):
+                        self.detectado = True
                         imagen_todos = self.frame
                         for x in tipos:
                             imagen_copia = self.frame
