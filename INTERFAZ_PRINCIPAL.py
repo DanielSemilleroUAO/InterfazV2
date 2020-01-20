@@ -63,7 +63,7 @@ PORCENTAJES = [0,0,0,0,0,0,0,0,0,0,0,0,0]
 tipos = ["organico", "plastico", "vidrio", "papel/carton","metal"]
 #------------------IMPORTAR MODELO DE RED NEURONAL-----------------------------
 ruta = "/home/linaro/CodTinkerV1/"
-net = cv2.dnn.readNetFromTensorflow(ruta+"MODELO_DL/frozen_inference_graphV4.pb",ruta+"MODELO_DL/graph.pbtxt")
+net = cv2.dnn.readNetFromTensorflow(ruta+"MODELO_DL/frozen_inference_graphV10.pb",ruta+"MODELO_DL/graph.pbtxt")
 inputQueue = Queue(maxsize=1)
 outputQueue = Queue(maxsize=1)
 #-----------------HILO DE PROCESAMIENTO DEL MODELO-----------------------------
@@ -348,7 +348,23 @@ class Interfaz_grafica_usuario(tkinter.Tk):
             #-----------------RESPUESTA DE LA RED CONVOLUCIONAL--------------------
                 if(self.seg_ant_r != hora_actual.second):
                     self.tiempo_toma-=1
-                    self.seg_ant_r = hora_actual.second 
+                    self.seg_ant_r = hora_actual.second
+            #------------------NO SE DETECTO RESIDUO RECICLABLE--------
+                if(self.contador_tomas > 3 and self.detectado is False):
+                    self.detectado = True
+                    self.actualizar_imagen(cv2.resize(cv2.imread(ruta+"IMAGENES/GENERAL.png"), (235,165), interpolation = cv2.INTER_AREA),3)
+                    self.reproducir_audio(12)
+                    if(PORCENTAJES[12] < 95):
+                        if(comunicacion_contenedor.publicar("contenedor/otros") is False):
+                            self.estado_contenedor.set(u"FALLO DE CONEXIÓN A CONTENEDORES")    
+                        else:
+                            self.estado_contenedor.set(u"ESTADO DEL CONTENDOR E INFORMACIÓN DE FALLOS")
+                    else:
+                        #------------------CONTENDOR OTROS LLENO-----------
+                        time.sleep(5)
+                        self.reproducir_audio(13)
+                        self.ventana_contenedor_lleno()
+                        
                 if(self.tiempo_toma == 0 and self.contador_tomas < 3):
                     self.contador_tomas+=1
                     self.tiempo_toma = 3
@@ -356,107 +372,75 @@ class Interfaz_grafica_usuario(tkinter.Tk):
                     if inputQueue.empty():
                         inputQueue.put(self.frame)
                     if not outputQueue.empty():
-                        self.detections = outputQueue.get()            
-                if self.detections is not None and self.detectado is False:
-                    #---------LOGICA DE LA CLASIFICACIÒN-------------------
-                    roi = self.frame
-                    for i in np.arange(0, self.detections.shape[2]):
-                        confidence = self.detections[0, 0, i, 2]
-                        if confidence < 0.98:
-                            continue
-                        idx = int(self.detections[0, 0, i, 1])
-                        dims = np.array([fW, fH, fW, fH])
-                        box = self.detections[0, 0, i, 3:7] * dims
-                        (startX, startY, endX, endY) = box.astype("int")
-                        label = "{}: {:.2f}%".format(CLASSES[idx],confidence * 100)
-                        cv2.rectangle(roi, (startX, startY), (endX, endY),COLORS[idx], 2)
-                        startY = startY - 15 if startY - 15 > 15 else startY + 15
-                        cv2.putText(self.frame, label, (startX, startY),cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS[idx], 2)
-                        #----------------ROI DE LA IMAGEN----------------------
-                        self.indices.append(idx)
-                        self.cajas.append(box)
-                        self.tipo.append(TIPO[idx])
-                        self.valores.append(confidence * 100)
-                        #roi = self.frame[startY:endY, startX:endX]
-                        self.actualizar_imagen(cv2.resize(roi, (235,165), interpolation = cv2.INTER_AREA),2)
+                        self.detections = outputQueue.get()
                         
-                if(len(self.indices) >= 1):
-                    imagen_todos = self.frame
-                    for x in tipos:
-                        imagen_copia = self.frame
-                        encontrado = False
-                        for i in range(0,len(self.tipo)):
-                            if(x == self.tipo[i]):
-                                encontrado = True
-                                box = self.cajas[i]
-                                (startX, startY, endX, endY) = box.astype("int")
-                                label = "{}: {:.2f}%".format(x,self.valores[i])
-                                startY = startY - 15 if startY - 15 > 15 else startY + 15
-                                cv2.putText(imagen_copia, label, (startX, startY),cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS[idx], 2)
-                                cv2.putText(imagen_todos, label, (startX, startY),cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS[idx], 2)
-                                self.actualizar_imagen(cv2.resize(imagen_copia, (555,420), interpolation = cv2.INTER_AREA),1)
-                        if(encontrado == True):
-                            if x == "papel/carton":
-                                index = 4
-                            elif x == "metal":
-                                index = 6
-                            elif x == "plastico":
-                                index = 2
-                            elif x == "vidrio":
-                                index = 3
-                            elif x == "organico":
-                                index = 1
-                            else:
-                                pass
-                            self.actualizar_imagen(cv2.resize(cv2.imread(ruta+IMAGES[index]), (235,165), interpolation = cv2.INTER_AREA),3)
-                            self.reproducir_audio(index)
-                            if(PORCENTAJES[index] < 95):
-                                if(comunicacion_contenedor.publicar(TOPICS[index]) is False):
-                                    self.estado_contenedor.set(u"FALLO DE CONEXIÓN A CONTENEDORES")    
+                    if self.detections is not None and self.detectado is False and self.contador_tomas != 1:
+                        #---------LOGICA DE LA CLASIFICACIÒN-------------------
+                        roi = self.frame
+                        for i in np.arange(0, self.detections.shape[2]):
+                            confidence = self.detections[0, 0, i, 2]
+                            if confidence < 0.98:
+                                continue
+                            idx = int(self.detections[0, 0, i, 1])
+                            dims = np.array([fW, fH, fW, fH])
+                            box = self.detections[0, 0, i, 3:7] * dims
+                            (startX, startY, endX, endY) = box.astype("int")
+                            label = "{}: {:.2f}%".format(CLASSES[idx],confidence * 100)
+                            cv2.rectangle(roi, (startX, startY), (endX, endY),COLORS[idx], 2)
+                            startY = startY - 15 if startY - 15 > 15 else startY + 15
+                            cv2.putText(self.frame, label, (startX, startY),cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS[idx], 2)
+                            #----------------ROI DE LA IMAGEN----------------------
+                            self.indices.append(idx)
+                            self.cajas.append(box)
+                            self.tipo.append(TIPO[idx])
+                            self.valores.append(confidence * 100)
+                            self.actualizar_imagen(cv2.resize(roi, (235,165), interpolation = cv2.INTER_AREA),2)
+                        
+                    if(len(self.indices) >= 1):
+                        imagen_todos = self.frame
+                        for x in tipos:
+                            imagen_copia = self.frame
+                            encontrado = False
+                            for i in range(0,len(self.tipo)):
+                                if(x == self.tipo[i]):
+                                    encontrado = True
+                                    box = self.cajas[i]
+                                    idx = self.indices[i]
+                                    (startX, startY, endX, endY) = box.astype("int")
+                                    cv2.rectangle(imagen_copia, (startX, startY), (endX, endY),COLORS[idx], 2)
+                                    label = "{}: {:.2f}%".format(x,self.valores[i])
+                                    startY = startY - 15 if startY - 15 > 15 else startY + 15
+                                    cv2.putText(imagen_copia, label, (startX, startY),cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS[idx], 2)
+                                    cv2.putText(imagen_todos, label, (startX, startY),cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS[idx], 2)
+                                    self.actualizar_imagen(cv2.resize(imagen_copia, (555,420), interpolation = cv2.INTER_AREA),1)
+                            if(encontrado == True):
+                                if x == "papel/carton":
+                                    index = 4
+                                elif x == "metal":
+                                    index = 6
+                                elif x == "plastico":
+                                    index = 2
+                                elif x == "vidrio":
+                                    index = 3
+                                elif x == "organico":
+                                    index = 1
                                 else:
-                                    self.estado_contenedor.set(u"ESTADO DEL CONTENDOR E INFORMACIÓN DE FALLOS")
-                                time.sleep(5)
-                            else:
-                                #------------------CONTENEDOR LLENO----------------
-                                time.sleep(5)
-                                self.reproducir_audio(13)
-                                self.ventana_contenedor_lleno()
-                                
-                    self.actualizar_imagen(cv2.resize(imagen_todos, (555,420), interpolation = cv2.INTER_AREA),1)
-                    """
-                    #---------------------IDENTIFICAR RESIDUO--------------
-                    index_maximo = self.valores.index(max(self.valores))
-                    index = self.indices[index_maximo]
-                    self.actualizar_imagen(cv2.resize(cv2.imread(ruta+IMAGES[self.indices[index_maximo]]), (235,165), interpolation = cv2.INTER_AREA),3)
-                    self.reproducir_audio(self.indices[index_maximo])
-                    self.detectado = True
-                    self.seg_ant = hora_actual.second
-                    if(PORCENTAJES[index] < 95):
-                        if(comunicacion_contenedor.publicar(TOPICS[index]) is False):
-                            self.estado_contenedor.set(u"FALLO DE CONEXIÓN A CONTENEDORES")    
-                        else:
-                            self.estado_contenedor.set(u"ESTADO DEL CONTENDOR E INFORMACIÓN DE FALLOS")
-                    else:
-                        #------------------CONTENEDOR LLENO----------------
-                        time.sleep(5)
-                        self.reproducir_audio(13)
-                        self.ventana_contenedor_lleno()
-                    """
-                    #------------------NO SE DETECTO RESIDUO RECICLABLE--------
-                    if(self.contador_tomas > 3 and self.detectado is False and len(self.indices) == 0):
-                        self.detectado = True
-                        self.actualizar_imagen(cv2.resize(cv2.imread(ruta+"IMAGENES/GENERAL.png"), (235,165), interpolation = cv2.INTER_AREA),3)
-                        self.reproducir_audio(12)
-                        if(PORCENTAJES[12] < 95):
-                            if(comunicacion_contenedor.publicar("contenedor/otros") is False):
-                                self.estado_contenedor.set(u"FALLO DE CONEXIÓN A CONTENEDORES")    
-                            else:
-                                self.estado_contenedor.set(u"ESTADO DEL CONTENDOR E INFORMACIÓN DE FALLOS")
-                        else:
-                            #------------------CONTENDOR OTROS LLENO-----------
-                            time.sleep(5)
-                            self.reproducir_audio(13)
-                            self.ventana_contenedor_lleno()
+                                    pass
+                                self.actualizar_imagen(cv2.resize(cv2.imread(ruta+IMAGES[index]), (235,165), interpolation = cv2.INTER_AREA),3)
+                                self.reproducir_audio(index)
+                                if(PORCENTAJES[index] < 95):
+                                    if(comunicacion_contenedor.publicar(TOPICS[index]) is False):
+                                        self.estado_contenedor.set(u"FALLO DE CONEXIÓN A CONTENEDORES")    
+                                    else:
+                                        self.estado_contenedor.set(u"ESTADO DEL CONTENDOR E INFORMACIÓN DE FALLOS")
+                                else:
+                                    #------------------CONTENEDOR LLENO----------------
+                                    time.sleep(5)
+                                    self.reproducir_audio(13)
+                                    self.ventana_contenedor_lleno()
+                                time.sleep(10)
+                                    
+                        self.actualizar_imagen(cv2.resize(imagen_todos, (555,420), interpolation = cv2.INTER_AREA),1)
             #---------------------RESIDUO RECICLABLE DETECTADO-----------------            
             if self.detectado is True:
                 self.tiempo.set("TIEMPO: "+str(self.tiempo_espera))
